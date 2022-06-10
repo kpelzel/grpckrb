@@ -64,17 +64,31 @@ func (i *KRBServerInterceptor) Unary() grpc.UnaryServerInterceptor {
 
 func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		identity, identErr := i.authn(ss.Context())
+		var ctx context.Context
+		if identErr == nil {
+			ctx = context.WithValue(ctx, goidentity.CTXKey, identity)
+		}
+
+		type serverStream struct {
+			grpc.ServerStream
+			ctx context.Context
+		}
+		newSS := &serverStream{
+			ServerStream: ss,
+			ctx:          ctx,
+		}
+
 		if i.AllowAnonymous {
 			if _, ok := i.AuthorizationRoles[info.FullMethod]; !ok {
 				// Anonymous access is allowed and there is no defined role needed for this method so just serve it
-				return handler(srv, ss)
+				return handler(srv, newSS)
 			}
 		}
 
-		identity, err := i.authn(ss.Context())
-		if err != nil {
-			i.Settings.Logger().Printf("kerberos authentication failed for request to %s: %v", info.FullMethod, err)
-			return err
+		if identErr != nil {
+			i.Settings.Logger().Printf("kerberos authentication failed for request to %s: %v", info.FullMethod, identErr)
+			return identErr
 		}
 
 		if !i.authz(identity, info.FullMethod) {
@@ -83,7 +97,7 @@ func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 		}
 
 		i.Settings.Logger().Printf("user %s@%s authorised to access %s", identity.UserName(), identity.Domain(), info.FullMethod)
-		return handler(srv, ss)
+		return handler(srv, newSS)
 	}
 }
 
