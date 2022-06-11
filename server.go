@@ -65,7 +65,7 @@ func (i *KRBServerInterceptor) Unary() grpc.UnaryServerInterceptor {
 func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		identity, identErr := i.authn(ss.Context())
-		var ctx context.Context
+		ctx := ss.Context()
 		if identErr == nil {
 			ctx = context.WithValue(ctx, goidentity.CTXKey, identity)
 		}
