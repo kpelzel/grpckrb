@@ -62,27 +62,45 @@ func (i *KRBServerInterceptor) Unary() grpc.UnaryServerInterceptor {
 	}
 }
 
+type StreamContextWrapper interface {
+	grpc.ServerStream
+	SetContext(context.Context)
+}
+
+type wrapper struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *wrapper) Context() context.Context {
+	return w.ctx
+}
+
+func (w *wrapper) SetContext(ctx context.Context) {
+	w.ctx = ctx
+}
+
+func newStreamContextWrapper(inner grpc.ServerStream) StreamContextWrapper {
+	ctx := inner.Context()
+	return &wrapper{
+		inner,
+		ctx,
+	}
+}
+
 func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		identity, identErr := i.authn(ss.Context())
-		ctx := ss.Context()
+		w := newStreamContextWrapper(ss)
 		if identErr == nil {
-			ctx = context.WithValue(ctx, goidentity.CTXKey, identity)
-		}
-
-		type serverStream struct {
-			grpc.ServerStream
-			ctx context.Context
-		}
-		newSS := &serverStream{
-			ServerStream: ss,
-			ctx:          ctx,
+			ctx := context.WithValue(w.Context(), goidentity.CTXKey, identity)
+			w.SetContext(ctx)
 		}
 
 		if i.AllowAnonymous {
 			if _, ok := i.AuthorizationRoles[info.FullMethod]; !ok {
 				// Anonymous access is allowed and there is no defined role needed for this method so just serve it
-				return handler(srv, newSS)
+				return handler(srv, w)
 			}
 		}
 
@@ -97,7 +115,7 @@ func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 		}
 
 		i.Settings.Logger().Printf("user %s@%s authorised to access %s", identity.UserName(), identity.Domain(), info.FullMethod)
-		return handler(srv, newSS)
+		return handler(srv, w)
 	}
 }
 
