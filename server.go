@@ -36,14 +36,15 @@ func NewKRBServerInterceptor(kt *keytab.Keytab, logger *log.Logger) *KRBServerIn
 func (i *KRBServerInterceptor) Unary() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 		identity, identErr := i.authn(ctx)
-		if identErr != nil {
-			i.Settings.Logger().Printf("kerberos authentication failed for request to %s: %v", info.FullMethod, identErr)
-		} else {
+		if identErr == nil {
 			ctx = context.WithValue(ctx, goidentity.CTXKey, identity)
 		}
 
 		if i.AllowAnonymous {
 			if _, ok := i.AuthorizationRoles[info.FullMethod]; !ok {
+				if identErr != nil {
+					i.Settings.Logger().Printf("kerberos authentication failed for request to %s, but allow anonymous is enabled: %v", info.FullMethod, identErr)
+				}
 				// Anonymous access is allowed and there is no defined role needed for this method so just serve it
 				return handler(ctx, req)
 			}
@@ -94,15 +95,16 @@ func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		identity, identErr := i.authn(ss.Context())
 		w := newStreamContextWrapper(ss)
-		if identErr != nil {
-			i.Settings.Logger().Printf("kerberos authentication failed for request to %s: %v", info.FullMethod, identErr)
-		} else {
+		if identErr == nil {
 			ctx := context.WithValue(w.Context(), goidentity.CTXKey, identity)
 			w.SetContext(ctx)
 		}
 
 		if i.AllowAnonymous {
 			if _, ok := i.AuthorizationRoles[info.FullMethod]; !ok {
+				if identErr != nil {
+					i.Settings.Logger().Printf("kerberos authentication failed for request to %s, but allow anonymous is enabled: %v", info.FullMethod, identErr)
+				}
 				// Anonymous access is allowed and there is no defined role needed for this method so just serve it
 				return handler(srv, w)
 			}
