@@ -42,6 +42,9 @@ func (i *KRBServerInterceptor) Unary() grpc.UnaryServerInterceptor {
 
 		if i.AllowAnonymous {
 			if _, ok := i.AuthorizationRoles[info.FullMethod]; !ok {
+				if identErr != nil {
+					i.Settings.Logger().Printf("kerberos authentication failed for request to %s, but allow anonymous is enabled: %v", info.FullMethod, identErr)
+				}
 				// Anonymous access is allowed and there is no defined role needed for this method so just serve it
 				return handler(ctx, req)
 			}
@@ -99,6 +102,9 @@ func (i *KRBServerInterceptor) Stream() grpc.StreamServerInterceptor {
 
 		if i.AllowAnonymous {
 			if _, ok := i.AuthorizationRoles[info.FullMethod]; !ok {
+				if identErr != nil {
+					i.Settings.Logger().Printf("kerberos authentication failed for request to %s, but allow anonymous is enabled: %v", info.FullMethod, identErr)
+				}
 				// Anonymous access is allowed and there is no defined role needed for this method so just serve it
 				return handler(srv, w)
 			}
